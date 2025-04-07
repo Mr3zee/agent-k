@@ -7,10 +7,11 @@ import io.ktor.client.request.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
 // Anthropic API request and response models
@@ -20,23 +21,20 @@ data class AnthropicMessage(
     val content: String
 )
 
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class AnthropicRequest(
     val model: String,
     val messages: List<AnthropicMessage>,
-    @SerialName("max_tokens") val maxTokens: Int = 4096
+    @EncodeDefault
+    @SerialName("max_tokens")
+    val maxTokens: Int = 4096,
 )
 
 @Serializable
 data class ContentBlock(
     val type: String,
     val text: String? = null
-)
-
-@Serializable
-data class AnthropicMessageResponse(
-    val role: String,
-    val content: List<ContentBlock>
 )
 
 @Serializable
