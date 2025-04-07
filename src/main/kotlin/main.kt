@@ -315,10 +315,35 @@ class AnthropicClient(private val apiKey: String, private val safeMode: Boolean 
 }
 
 /**
+ * Loads the system prompt from the resource file.
+ *
+ * @return The system prompt from the resource file, or a default prompt if the file cannot be read
+ */
+fun loadSystemPrompt(): String {
+    return try {
+        val inputStream = object {}.javaClass.getResourceAsStream("/system_prompt.txt")
+        inputStream?.bufferedReader()?.use { it.readText() } ?: defaultSystemPrompt()
+    } catch (e: Exception) {
+        LoggerFactory.getLogger("MainKt").error("Error loading system prompt: {}", e.message, e)
+        defaultSystemPrompt()
+    }
+}
+
+/**
+ * Returns a default system prompt if the resource file cannot be read.
+ *
+ * @return A default system prompt
+ */
+fun defaultSystemPrompt(): String {
+    return "You are an AI agent called Agent-K. You are a general purpose AI agent capable of changing its own code using available tools. You are using Claude AI LLM reasoning capabilities."
+}
+
+/**
  * Generates system information including current date, time, time zone, and OS details.
+ * Combines the dynamic environment information with the system prompt from the resource file.
  * Ensures all environment variables are not null.
  *
- * @return A formatted string with system information
+ * @return A formatted string with system information and the system prompt
  */
 fun generateSystemInfo(): String {
     val currentDateTime = LocalDateTime.now()
@@ -329,12 +354,18 @@ fun generateSystemInfo(): String {
     val osVersion = System.getProperty("os.version") ?: "Unknown Version"
     val osArch = System.getProperty("os.arch") ?: "Unknown Architecture"
 
-    return """
+    val environmentInfo = """
         Current Environment:
         Date and Time: $formattedDateTime
         Time Zone: $timeZone
         Operating System: $osName $osVersion ($osArch)
     """.trimIndent()
+
+    // Load the system prompt from the resource file
+    val systemPrompt = loadSystemPrompt()
+
+    // Combine the environment information with the system prompt
+    return "$environmentInfo\n\n$systemPrompt"
 }
 
 fun main(args: Array<String>) = runBlocking {
