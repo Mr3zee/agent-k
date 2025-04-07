@@ -383,6 +383,11 @@ fun main(args: Array<String>) = runBlocking {
     anthropicClient.registerTool(writeFileTool)
     logger.debug("Registered WriteFileTool")
 
+    // Register the TerminalTool
+    val terminalTool = tools.TerminalTool()
+    anthropicClient.registerTool(terminalTool)
+    logger.debug("Registered TerminalTool")
+
     logger.debug("AnthropicClient initialized")
 
     // Run the chat loop
