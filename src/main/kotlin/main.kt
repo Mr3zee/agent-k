@@ -16,6 +16,9 @@ import kotlinx.serialization.modules.SerializersModule
 import kotlinx.serialization.modules.polymorphic
 import kotlinx.serialization.modules.subclass
 import org.slf4j.LoggerFactory
+import java.time.LocalDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 // Anthropic API request and response models
 @Serializable
@@ -33,6 +36,7 @@ data class AnthropicRequest(
     @SerialName("max_tokens")
     val maxTokens: Int = 4096,
     val tools: List<tools.AnthropicTool>? = null,
+    val system: String = "",
 )
 
 @OptIn(ExperimentalSerializationApi::class)
@@ -153,15 +157,19 @@ class AnthropicClient(private val apiKey: String, private val safeMode: Boolean 
      * @return The response from Claude
      */
     private suspend fun sendRequestToClaude(tools: List<tools.AnthropicTool>?): AnthropicResponse {
+        // Update system information before each request
+        val systemInfo = generateSystemInfo()
+
         val requestBody = AnthropicRequest(
             model = "claude-3-5-sonnet-20240620",
             messages = messages,
-            tools = tools
+            tools = tools,
+            system = systemInfo,
         )
         logger.trace("Created request body with model: {}", requestBody.model)
 
         logger.debug("Sending request to Anthropic API")
-        val response =  client.post("https://api.anthropic.com/v1/messages") {
+        val response = client.post("https://api.anthropic.com/v1/messages") {
             contentType(ContentType.Application.Json)
             header("x-api-key", apiKey)
             header("anthropic-version", "2023-06-01")
@@ -306,7 +314,30 @@ class AnthropicClient(private val apiKey: String, private val safeMode: Boolean 
 
 }
 
-fun main(args: Array<String>) {
+/**
+ * Generates system information including current date, time, time zone, and OS details.
+ * Ensures all environment variables are not null.
+ *
+ * @return A formatted string with system information
+ */
+fun generateSystemInfo(): String {
+    val currentDateTime = LocalDateTime.now()
+    val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+    val formattedDateTime = currentDateTime.format(formatter)
+    val timeZone = ZoneId.systemDefault()
+    val osName = System.getProperty("os.name") ?: "Unknown OS"
+    val osVersion = System.getProperty("os.version") ?: "Unknown Version"
+    val osArch = System.getProperty("os.arch") ?: "Unknown Architecture"
+
+    return """
+        Current Environment:
+        Date and Time: $formattedDateTime
+        Time Zone: $timeZone
+        Operating System: $osName $osVersion ($osArch)
+    """.trimIndent()
+}
+
+fun main(args: Array<String>) = runBlocking {
     val logger = LoggerFactory.getLogger("MainKt")
     logger.info("Starting Anthropic Claude Chat application")
 
@@ -319,7 +350,7 @@ fun main(args: Array<String>) {
     // Get API key from environment variable
     val apiKey = System.getenv("ANTHROPIC_KEY") ?: run {
         logger.error("ANTHROPIC_KEY environment variable not found. Please set it before running.")
-        return
+        return@runBlocking
     }
     logger.debug("API key loaded successfully")
 
@@ -370,11 +401,9 @@ fun main(args: Array<String>) {
             else -> {
                 try {
                     logger.debug("Processing user input")
-                    runBlocking {
-                        val response = anthropicClient.sendMessage(userInput)
-                        logger.debug("Response received from Claude, length: {}", response.length)
-                        println("\nClaude: $response")
-                    }
+                    val response = anthropicClient.sendMessage(userInput)
+                    logger.debug("Response received from Claude, length: {}", response.length)
+                    println("\nClaude: $response")
                 } catch (e: Exception) {
                     logger.error("Error while processing message: {}", e.message, e)
                     println("\nError: ${e.message}")
