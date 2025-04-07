@@ -73,7 +73,7 @@ data class AnthropicResponse(
     val content: List<ContentBlock>,
 )
 
-class AnthropicClient(private val apiKey: String) {
+class AnthropicClient(private val apiKey: String, private val safeMode: Boolean = false) {
     private val logger = LoggerFactory.getLogger(AnthropicClient::class.java)
 
     private val contentBlockModule = SerializersModule {
@@ -254,6 +254,16 @@ class AnthropicClient(private val apiKey: String) {
                 val tool = availableTools.find { it.name == block.name }
                     ?: throw IllegalArgumentException("Tool not found: ${block.name}")
 
+                // In safe mode, ask for user permission before executing the tool
+                if (safeMode) {
+                    val permissionGranted = askForPermission(tool, block.input)
+                    if (!permissionGranted) {
+                        logger.info("User denied permission to execute tool: {}", block.name)
+                        responseBuilder.append("\n[Tool execution denied by user]\n")
+                        continue
+                    }
+                }
+
                 val result = tool.execute(block.input)
                 logger.debug("Tool execution successful, result length: {}", result.length)
 
@@ -268,12 +278,43 @@ class AnthropicClient(private val apiKey: String) {
         return results
     }
 
+    /**
+     * Asks the user for permission to execute a tool.
+     *
+     * @param tool The tool to execute
+     * @param parameters The parameters to use when executing the tool
+     * @return True if the user grants permission, false otherwise
+     */
+    private fun askForPermission(tool: tools.Tool, parameters: Map<String, String>): Boolean {
+        println("\n===== SAFE MODE: TOOL EXECUTION REQUEST =====")
+        println("Tool: ${tool.name}")
+        println("Description: ${tool.description}")
+        println("Parameters:")
+
+        parameters.forEach { (key, value) ->
+            val paramDescription = tool.inputSchema.properties[key]?.description ?: "No description available"
+            val displayValue = if (value.length > 100) "${value.take(97)}..." else value
+            println("  - $key: $displayValue")
+            println("    Description: $paramDescription")
+        }
+
+        print("\nDo you want to allow this tool execution? (y/n): ")
+        val response = readlnOrNull()?.trim()?.lowercase() ?: "n"
+        return response == "y" || response == "yes"
+    }
+
 
 }
 
-fun main() {
+fun main(args: Array<String>) {
     val logger = LoggerFactory.getLogger("MainKt")
     logger.info("Starting Anthropic Claude Chat application")
+
+    // Parse command-line arguments
+    val safeMode = args.contains("--safe-mode")
+    if (safeMode) {
+        logger.info("Safe mode enabled: Tool executions will require user permission")
+    }
 
     // Get API key from environment variable
     val apiKey = System.getenv("ANTHROPIC_KEY") ?: run {
@@ -285,15 +326,21 @@ fun main() {
     logger.info("Welcome to the Anthropic Claude Chat!")
     logger.info("Type your message and press Enter. Type 'exit' to quit.")
     logger.info("Claude can use tools to help answer your questions, including multiple tools in one request.")
+    if (safeMode) {
+        logger.info("Safe mode is enabled: You will be asked for permission before any tool is executed")
+    }
     logger.info("----------------------------------------------------")
 
     // Also print to console for user interaction
     println("Welcome to the Anthropic Claude Chat!")
     println("Type your message and press Enter. Type 'exit' to quit.")
     println("Claude can use tools to help answer your questions, including multiple tools in one request.")
+    if (safeMode) {
+        println("Safe mode is enabled: You will be asked for permission before any tool is executed")
+    }
     println("----------------------------------------------------")
 
-    val anthropicClient = AnthropicClient(apiKey)
+    val anthropicClient = AnthropicClient(apiKey, safeMode)
 
     // Register the ReadFileTool
     val readFileTool = tools.ReadFileTool()
