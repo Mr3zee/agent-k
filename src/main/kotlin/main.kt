@@ -300,6 +300,11 @@ fun main() {
     anthropicClient.registerTool(readFileTool)
     logger.debug("Registered ReadFileTool")
 
+    // Register the WriteFileTool
+    val writeFileTool = tools.WriteFileTool()
+    anthropicClient.registerTool(writeFileTool)
+    logger.debug("Registered WriteFileTool")
+
     logger.debug("AnthropicClient initialized")
 
     // Run the chat loop
