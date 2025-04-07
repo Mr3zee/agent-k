@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Set the root logger level to TRACE (most verbose) -->
+    <root level="TRACE">
+        <appender-ref ref="CONSOLE" />
+    </root>
+
+    <!-- Set specific logger levels -->
+    <logger name="io.ktor" level="TRACE" />
+    <logger name="org.jetbrains" level="TRACE" />
+</configuration>
