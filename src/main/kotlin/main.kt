@@ -2,8 +2,10 @@ import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.engine.cio.*
 import io.ktor.client.plugins.contentnegotiation.*
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.logging.*
 import io.ktor.client.request.*
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.coroutines.runBlocking
@@ -77,7 +79,11 @@ data class AnthropicResponse(
     val content: List<ContentBlock>,
 )
 
-class AnthropicClient(private val apiKey: String, private val safeMode: Boolean = false) {
+class AnthropicClient(
+    private val apiKey: String,
+    private val safeMode: Boolean = false,
+    private val requestTimeoutSeconds: Long = 120, // Default timeout: 2 minutes
+) {
     private val logger = LoggerFactory.getLogger(AnthropicClient::class.java)
 
     private val contentBlockModule = SerializersModule {
@@ -98,7 +104,12 @@ class AnthropicClient(private val apiKey: String, private val safeMode: Boolean 
             })
         }
         install(Logging) {
-            level = LogLevel.ALL
+            level = LogLevel.NONE
+        }
+        install(HttpTimeout) {
+            requestTimeoutMillis = requestTimeoutSeconds * 1000
+            connectTimeoutMillis = 30_000  // 30 seconds
+            socketTimeoutMillis = 60_000   // 60 seconds
         }
     }
 
@@ -119,9 +130,9 @@ class AnthropicClient(private val apiKey: String, private val safeMode: Boolean 
      * Sends a message to Claude and returns the response.
      *
      * @param message The message to send
-     * @return The response from Claude
+     * @return The response from Claude as a list of content blocks
      */
-    suspend fun sendMessage(message: String): String {
+    suspend fun sendMessage(message: String) {
         logger.debug("Sending message to Claude: {}", message)
 
         // Add user message to history
@@ -136,18 +147,11 @@ class AnthropicClient(private val apiKey: String, private val safeMode: Boolean 
             null
         }
 
-        // Process the response and handle any tool use requests
-        val responseBuilder = StringBuilder()
+        // Send the request to Claude
         val initialResponse = sendRequestToClaude(anthropicTools)
 
         // Process the response content, which may include multiple tool use blocks
-        processResponseContent(initialResponse, responseBuilder, anthropicTools)
-
-        val assistantMessage = responseBuilder.toString()
-        logger.trace("Extracted assistant message, length: {}", assistantMessage.length)
-
-        logger.debug("Returning assistant message")
-        return assistantMessage
+        processResponseContent(initialResponse, anthropicTools)
     }
 
     /**
@@ -174,13 +178,22 @@ class AnthropicClient(private val apiKey: String, private val safeMode: Boolean 
             header("x-api-key", apiKey)
             header("anthropic-version", "2023-06-01")
             setBody(requestBody)
-        }.body<AnthropicResponse>()
+        }
+
+        val body = try {
+            response.body<AnthropicResponse>()
+        } catch (e: Exception) {
+            logger.error("Error while parsing response body: {}", e.message, e)
+            val text = response.bodyAsText()
+            println("Error while parsing response (${response.status}) body: $text")
+            throw e
+        }
 
         // Add assistant response to history
-        messages.add(AnthropicMessage("assistant", response.content))
+        messages.add(AnthropicMessage("assistant", body.content))
         logger.trace("Added assistant response to history")
 
-        return response
+        return body
     }
 
     /**
@@ -189,124 +202,114 @@ class AnthropicClient(private val apiKey: String, private val safeMode: Boolean 
      * It executes all tools first, then sends a single follow-up request.
      *
      * @param response The response from Claude
-     * @param responseBuilder The StringBuilder to append the processed content to
      * @param tools The tools to include in follow-up requests
+     * @return A list of content blocks representing the processed response
      */
     private suspend fun processResponseContent(
         response: AnthropicResponse,
-        responseBuilder: StringBuilder,
         tools: List<tools.AnthropicTool>?,
     ) {
         logger.debug("Processing response with id: {}", response.id)
 
-        // First, process all text blocks
-        val toolUseBlocks = mutableListOf<ToolUseContentBlock>()
+        val results = mutableMapOf<ToolUseContentBlock, String>()
 
         for (block in response.content) {
-            if (block is TextContentBlock) {
-                responseBuilder.append(block.text)
-            } else if (block is ToolUseContentBlock) {
-                toolUseBlocks.add(block)
+            when (block) {
+                is TextContentBlock -> {
+                    println("Agent-K: ${block.text}")
+                }
+
+                is ToolUseContentBlock -> {
+                    // Execute all tools and collect results
+                    val toolResult = executeTool(block)
+
+                    // Add tool content blocks to the result
+                    results[block] = toolResult
+                }
+
+                is ToolResultContentBlock -> {}
             }
         }
 
-        // Then, process all tool use blocks if any
-        if (toolUseBlocks.isNotEmpty()) {
-            // Execute all tools and collect results
-            val toolResults = executeAllTools(toolUseBlocks, responseBuilder)
-
-            // If we have tool results, send a follow-up request
-            if (toolResults.isNotEmpty()) {
-                // Add all tool results to the conversation
-                messages.add(AnthropicMessage(
-                    role = "user",
-                    toolResults.map { (toolUseBlock, result) ->
-                        ToolResultContentBlock(
-                            toolUseId = toolUseBlock.id,
-                            content = result
-                        )
-                    }
-                ))
-
-                // Get a follow-up response from Claude with all tool results
-                val followUpResponse = sendRequestToClaude(tools)
-                logger.debug("Received follow-up response from Anthropic API with id: {}", followUpResponse.id)
-
-                // Process the follow-up response, which may contain more tool use blocks
-                val followUpBuilder = StringBuilder()
-                processResponseContent(followUpResponse, followUpBuilder, tools)
-
-                responseBuilder.append(followUpBuilder)
-            }
+        if (results.isEmpty()) {
+            return
         }
+
+        // Add all tool results to the conversation
+        messages.add(AnthropicMessage(
+            role = "user",
+            results.map { (toolUseBlock, result) ->
+                ToolResultContentBlock(
+                    toolUseId = toolUseBlock.id,
+                    content = result
+                )
+            }
+        ))
+
+        // Get a follow-up response from Claude with all tool results
+        val followUpResponse = sendRequestToClaude(tools)
+        logger.debug("Received follow-up response from Anthropic API with id: {}", followUpResponse.id)
+
+        // Process the follow-up response, which may contain more tool use blocks
+        processResponseContent(followUpResponse, tools)
     }
 
     /**
      * Executes all tools in the given list of tool use blocks and collects their results.
      *
-     * @param toolUseBlocks The list of tool use blocks to process
-     * @param responseBuilder The StringBuilder to append the tool execution information to
-     * @return A map of tool names to their execution results
+     * @return A pair of:
+     *         - A map of tool use blocks to their execution results
+     *         - A list of content blocks representing tool execution information
      */
-    private fun executeAllTools(
-        toolUseBlocks: List<ToolUseContentBlock>,
-        responseBuilder: StringBuilder,
-    ): Map<ToolUseContentBlock, String> {
-        val results = mutableMapOf<ToolUseContentBlock, String>()
+    private fun executeTool(block: ToolUseContentBlock): String {
+        logger.debug("Tool use request received for tool: {}", block.name)
 
-        for (block in toolUseBlocks) {
-            logger.debug("Tool use request received for tool: {}", block.name)
-            responseBuilder.append("\n[Using tool: ${block.name}]\n")
+        return try {
+            val tool = availableTools.find { it.name == block.name }
+                ?: throw IllegalArgumentException("Tool not found: ${block.name}")
 
-            try {
-                val tool = availableTools.find { it.name == block.name }
-                    ?: throw IllegalArgumentException("Tool not found: ${block.name}")
-
-                // In safe mode, ask for user permission before executing the tool
-                if (safeMode) {
-                    val permissionGranted = askForPermission(tool, block.input)
-                    if (!permissionGranted) {
-                        logger.info("User denied permission to execute tool: {}", block.name)
-                        responseBuilder.append("\n[Tool execution denied by user]\n")
-                        continue
-                    }
-                }
-
-                val result = tool.execute(block.input)
-                logger.debug("Tool execution successful, result length: {}", result.length)
-
-                responseBuilder.append("\n[Tool result: $result]\n")
-                results[block] = result
-            } catch (e: Exception) {
-                logger.error("Error executing tool: {}", block.name, e)
-                responseBuilder.append("\n[Error executing tool: ${e.message}]\n")
+            // Always display tool information in the console
+            println("\n[Using tool: ${tool.name}]")
+            println("[Description: ${tool.description}]")
+            println("[Parameters:")
+            block.input.forEach { (key, value) ->
+                val paramDescription = tool.inputSchema.properties[key]?.description ?: "No description available"
+                val displayValue = if (value.length > 100) "${value.take(97)}..." else value
+                println("  - $key: $displayValue")
+                println("    Description: $paramDescription")
             }
-        }
+            println("]")
 
-        return results
+            // In safe mode, ask for user permission before executing the tool
+            if (safeMode) {
+                val permissionGranted = askForPermission()
+                if (!permissionGranted) {
+                    logger.info("User denied permission to execute tool: {}", block.name)
+                    return "Tool execution denied by user"
+                }
+            }
+
+            val result = tool.execute(block.input)
+            logger.debug("Tool execution successful, result length: {}", result.length)
+
+            println("[Tool result: $result]")
+
+            "Tool result: $result"
+        } catch (e: Exception) {
+            logger.error("Error executing tool: {}", block.name, e)
+            println("Error executing tool ${block.name}: ${e.message}]")
+            "Error executing tool: ${e.message}"
+        }
     }
 
     /**
      * Asks the user for permission to execute a tool.
      *
-     * @param tool The tool to execute
-     * @param parameters The parameters to use when executing the tool
      * @return True if the user grants permission, false otherwise
      */
-    private fun askForPermission(tool: tools.Tool, parameters: Map<String, String>): Boolean {
+    private fun askForPermission(): Boolean {
         println("\n===== SAFE MODE: TOOL EXECUTION REQUEST =====")
-        println("Tool: ${tool.name}")
-        println("Description: ${tool.description}")
-        println("Parameters:")
-
-        parameters.forEach { (key, value) ->
-            val paramDescription = tool.inputSchema.properties[key]?.description ?: "No description available"
-            val displayValue = if (value.length > 100) "${value.take(97)}..." else value
-            println("  - $key: $displayValue")
-            println("    Description: $paramDescription")
-        }
-
-        print("\nDo you want to allow this tool execution? (y/n): ")
+        println("\nDo you want to allow this tool execution? (y/n): ")
         val response = readlnOrNull()?.trim()?.lowercase() ?: "n"
         return response == "y" || response == "yes"
     }
@@ -378,6 +381,17 @@ fun main(args: Array<String>) = runBlocking {
         logger.info("Safe mode enabled: Tool executions will require user permission")
     }
 
+    // Parse timeout argument
+    val timeoutSeconds = args.withIndex()
+        .firstOrNull { (_, value) -> value == "--timeout" }
+        ?.let { (index, _) ->
+            if (index + 1 < args.size) {
+                args[index + 1].toLongOrNull()
+            } else null
+        } ?: 120L // Default: 2 minutes
+
+    logger.info("Request timeout set to $timeoutSeconds seconds")
+
     // Get API key from environment variable
     val apiKey = System.getenv("ANTHROPIC_KEY") ?: run {
         logger.error("ANTHROPIC_KEY environment variable not found. Please set it before running.")
@@ -400,9 +414,10 @@ fun main(args: Array<String>) = runBlocking {
     if (safeMode) {
         println("Safe mode is enabled: You will be asked for permission before any tool is executed")
     }
+    println("Request timeout set to $timeoutSeconds seconds")
     println("----------------------------------------------------")
 
-    val anthropicClient = AnthropicClient(apiKey, safeMode)
+    val anthropicClient = AnthropicClient(apiKey, safeMode, timeoutSeconds)
 
     // Register the ReadFileTool
     val readFileTool = tools.ReadFileTool()
@@ -437,9 +452,8 @@ fun main(args: Array<String>) = runBlocking {
             else -> {
                 try {
                     logger.debug("Processing user input")
-                    val response = anthropicClient.sendMessage(userInput)
-                    logger.debug("Response received from Claude, length: {}", response.length)
-                    println("\nClaude: $response")
+                    anthropicClient.sendMessage(userInput)
+                    println()
                 } catch (e: Exception) {
                     logger.error("Error while processing message: {}", e.message, e)
                     println("\nError: ${e.message}")

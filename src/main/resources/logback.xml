@@ -6,12 +6,12 @@
         </encoder>
     </appender>
 
-    <!-- Set the root logger level to TRACE (most verbose) -->
-    <root level="TRACE">
+    <!-- Set the root logger level to INFO -->
+    <root level="INFO">
         <appender-ref ref="CONSOLE" />
     </root>
 
     <!-- Set specific logger levels -->
-    <logger name="io.ktor" level="TRACE" />
-    <logger name="org.jetbrains" level="TRACE" />
+    <logger name="io.ktor" level="INFO" />
+    <logger name="org.jetbrains" level="INFO" />
 </configuration>
