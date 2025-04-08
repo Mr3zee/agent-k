@@ -25,7 +25,7 @@ class WriteFileTool : Tool {
             ),
             "content" to ToolProperty(
                 type = "string",
-                description = "The content to write to the file."
+                description = "The content to write to the file. Content will replace any existing content in the file."
             )
         ),
         required = listOf("file_path", "content")

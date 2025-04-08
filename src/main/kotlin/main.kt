@@ -274,7 +274,8 @@ class AnthropicClient(
             println("[Parameters:")
             block.input.forEach { (key, value) ->
                 val paramDescription = tool.inputSchema.properties[key]?.description ?: "No description available"
-                val displayValue = if (value.length > 100) "${value.take(97)}..." else value
+                val displayValue = (if (value.length > 100) "${value.take(97)}..." else value)
+                    .replace("\n", "\\n")
                 println("  - $key: $displayValue")
                 println("    Description: $paramDescription")
             }
@@ -292,7 +293,11 @@ class AnthropicClient(
             val result = tool.execute(block.input)
             logger.debug("Tool execution successful, result length: {}", result.length)
 
-            println("[Tool result: $result]")
+            val strippedResult = result
+                .replace("\n", "\\n")
+                .let { if (it.length > 100) "${it.take(97)}..." else it }
+
+            println("[Tool result: $strippedResult]")
 
             "Tool result: $result"
         } catch (e: Exception) {
