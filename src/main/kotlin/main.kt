@@ -169,6 +169,7 @@ class AnthropicClient(
             messages = messages,
             tools = tools,
             system = systemInfo,
+            maxTokens = 16000,
         )
         logger.trace("Created request body with model: {}", requestBody.model)
 
