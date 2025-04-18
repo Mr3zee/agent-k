@@ -11,14 +11,14 @@ import java.util.concurrent.TimeUnit
  */
 class TerminalTool : Tool {
     private val logger = LoggerFactory.getLogger(TerminalTool::class.java)
-    
+
     override val name: String = "terminal"
-    
+
     override val description: String = "Execute a command in the terminal. " +
             "Use this tool when you need to run shell commands or scripts. " +
             "The command will be executed in the current working directory. " +
             "This tool works on all operating systems (Windows, macOS, Linux)."
-    
+
     override val inputSchema: ToolInputSchema = ToolInputSchema(
         properties = mapOf(
             "command" to ToolProperty(
@@ -32,8 +32,8 @@ class TerminalTool : Tool {
         ),
         required = listOf("command")
     )
-    
-    override fun execute(parameters: Map<String, String>): String {
+
+    override suspend fun execute(parameters: Map<String, String>): String {
         val command = parameters["command"] ?: throw IllegalArgumentException("command parameter is required")
         val timeoutStr = parameters["timeout"] ?: "30"
         val timeout = try {
@@ -42,9 +42,9 @@ class TerminalTool : Tool {
             logger.warn("Invalid timeout value: {}, using default of 30 seconds", timeoutStr)
             30L
         }
-        
+
         logger.debug("Executing command: {}", command)
-        
+
         return try {
             // Create a process builder with the appropriate shell based on the OS
             val isWindows = System.getProperty("os.name").lowercase().contains("windows")
@@ -53,27 +53,27 @@ class TerminalTool : Tool {
             } else {
                 ProcessBuilder("/bin/sh", "-c", command)
             }
-            
+
             // Redirect error stream to output stream
             processBuilder.redirectErrorStream(true)
-            
+
             // Start the process
             val process = processBuilder.start()
-            
+
             // Wait for the process to complete with timeout
             val completed = process.waitFor(timeout, TimeUnit.SECONDS)
-            
+
             if (!completed) {
                 // Process didn't complete within the timeout, destroy it
                 process.destroy()
                 logger.warn("Command execution timed out after {} seconds: {}", timeout, command)
                 return "Error: Command execution timed out after $timeout seconds"
             }
-            
+
             // Read the output
             val reader = BufferedReader(InputStreamReader(process.inputStream))
             val output = reader.readLines().joinToString("\n")
-            
+
             // Check the exit code
             val exitCode = process.exitValue()
             if (exitCode != 0) {

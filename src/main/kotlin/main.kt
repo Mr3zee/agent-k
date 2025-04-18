@@ -262,7 +262,7 @@ class AnthropicClient(
      *         - A map of tool use blocks to their execution results
      *         - A list of content blocks representing tool execution information
      */
-    private fun executeTool(block: ToolUseContentBlock): String {
+    private suspend fun executeTool(block: ToolUseContentBlock): String {
         logger.debug("Tool use request received for tool: {}", block.name)
 
         return try {

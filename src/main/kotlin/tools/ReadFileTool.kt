@@ -10,13 +10,13 @@ import java.nio.file.Paths
  */
 class ReadFileTool : Tool {
     private val logger = LoggerFactory.getLogger(ReadFileTool::class.java)
-    
+
     override val name: String = "read_file"
-    
+
     override val description: String = "Read the contents of a file from the file system. " +
             "Use this tool when you need to access the content of a specific file. " +
             "The file path should be absolute or relative to the current working directory."
-    
+
     override val inputSchema: ToolInputSchema = ToolInputSchema(
         properties = mapOf(
             "file_path" to ToolProperty(
@@ -26,11 +26,11 @@ class ReadFileTool : Tool {
         ),
         required = listOf("file_path")
     )
-    
-    override fun execute(parameters: Map<String, String>): String {
+
+    override suspend fun execute(parameters: Map<String, String>): String {
         val filePath = parameters["file_path"] ?: throw IllegalArgumentException("file_path parameter is required")
         logger.debug("Reading file: {}", filePath)
-        
+
         return try {
             val path = Paths.get(filePath)
             if (!Files.exists(path)) {

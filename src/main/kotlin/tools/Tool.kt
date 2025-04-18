@@ -31,7 +31,7 @@ interface Tool {
      * @param parameters The parameters to use when executing the tool
      * @return The result of executing the tool
      */
-    fun execute(parameters: Map<String, String>): String
+    suspend fun execute(parameters: Map<String, String>): String
 }
 
 /**

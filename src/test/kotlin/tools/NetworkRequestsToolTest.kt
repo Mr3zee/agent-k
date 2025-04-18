@@ -64,7 +64,7 @@ class NetworkRequestsToolTest {
     }
 
     @Test
-    fun `test execute with mock client - HTML response`() {
+    fun `test execute with mock client - HTML response`() = runBlocking {
         // Create a mock client that returns HTML
         val mockEngine = MockEngine { request ->
             respond(
@@ -113,7 +113,7 @@ class NetworkRequestsToolTest {
     }
 
     @Test
-    fun `test execute with mock client - non-HTML response`() {
+    fun `test execute with mock client - non-HTML response`() = runBlocking {
         // Create a mock client that returns JSON
         val mockEngine = MockEngine { request ->
             respond(
@@ -151,7 +151,9 @@ class NetworkRequestsToolTest {
     @Test
     fun `test execute with missing url parameter`() {
         val exception = assertThrows(IllegalArgumentException::class.java) {
-            tool.execute(emptyMap())
+            runBlocking {
+                tool.execute(emptyMap())
+            }
         }
 
         assertEquals("url parameter is required", exception.message)

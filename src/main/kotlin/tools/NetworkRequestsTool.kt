@@ -8,7 +8,6 @@ import io.ktor.client.plugins.logging.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
-import kotlinx.coroutines.runBlocking
 import org.slf4j.LoggerFactory
 
 /**
@@ -16,14 +15,14 @@ import org.slf4j.LoggerFactory
  */
 class NetworkRequestsTool : Tool {
     private val logger = LoggerFactory.getLogger(NetworkRequestsTool::class.java)
-    
+
     override val name: String = "network_request"
-    
+
     override val description: String = "Makes a network request to a given URL and returns the content. " +
             "If the content is HTML, it will be converted to Markdown format. " +
             "This tool is useful for fetching web content in a readable format. " +
             "Only HTML content is supported - other content types will result in an error."
-    
+
     override val inputSchema: ToolInputSchema = ToolInputSchema(
         properties = mapOf(
             "url" to ToolProperty(
@@ -33,7 +32,7 @@ class NetworkRequestsTool : Tool {
         ),
         required = listOf("url")
     )
-    
+
     private val client = HttpClient(CIO) {
         install(Logging) {
             level = LogLevel.INFO
@@ -44,36 +43,34 @@ class NetworkRequestsTool : Tool {
             socketTimeoutMillis = 30000  // 30 seconds
         }
     }
-    
-    override fun execute(parameters: Map<String, String>): String {
+
+    override suspend fun execute(parameters: Map<String, String>): String {
         val url = parameters["url"] ?: throw IllegalArgumentException("url parameter is required")
         logger.debug("Making network request to: {}", url)
-        
+
         return try {
-            runBlocking {
-                val response = client.get(url)
-                
-                // Check if content type is HTML
-                val contentType = response.headers[HttpHeaders.ContentType]
-                if (contentType == null || !contentType.contains("text/html", ignoreCase = true)) {
-                    logger.error("Unsupported content type: {}", contentType)
-                    return@runBlocking "Error: Unsupported content type: $contentType. This tool can only process HTML content."
-                }
-                
-                val htmlContent = response.bodyAsText()
-                
-                // Convert HTML to Markdown
-                val markdownContent = convertHtmlToMarkdown(htmlContent)
-                logger.debug("Successfully converted HTML to Markdown, content length: {}", markdownContent.length)
-                
-                markdownContent
+            val response = client.get(url)
+
+            // Check if content type is HTML
+            val contentType = response.headers[HttpHeaders.ContentType]
+            if (contentType == null || !contentType.contains("text/html", ignoreCase = true)) {
+                logger.error("Unsupported content type: {}", contentType)
+                return "Error: Unsupported content type: $contentType. This tool can only process HTML content."
             }
+
+            val htmlContent = response.bodyAsText()
+
+            // Convert HTML to Markdown
+            val markdownContent = convertHtmlToMarkdown(htmlContent)
+            logger.debug("Successfully converted HTML to Markdown, content length: {}", markdownContent.length)
+
+            markdownContent
         } catch (e: Exception) {
             logger.error("Error making network request: {}", e.message, e)
             "Error making network request: ${e.message}"
         }
     }
-    
+
     /**
      * Converts HTML content to Markdown format.
      * 
