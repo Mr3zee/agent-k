@@ -440,6 +440,11 @@ fun main(args: Array<String>) = runBlocking {
     anthropicClient.registerTool(terminalTool)
     logger.debug("Registered TerminalTool")
 
+    // Register the NetworkRequestsTool
+    val networkRequestsTool = tools.NetworkRequestsTool()
+    anthropicClient.registerTool(networkRequestsTool)
+    logger.debug("Registered NetworkRequestsTool")
+
     logger.debug("AnthropicClient initialized")
 
     // Run the chat loop

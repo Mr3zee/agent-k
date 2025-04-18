@@ -20,11 +20,15 @@ dependencies {
     implementation("io.ktor:ktor-client-logging:2.3.7")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
 
+    // HTML to Markdown conversion
+    implementation("com.vladsch.flexmark:flexmark-all:0.64.8")
+
     // Logging
     implementation("org.slf4j:slf4j-api:2.0.9")
     implementation("ch.qos.logback:logback-classic:1.4.11")
 
     testImplementation(kotlin("test"))
+    testImplementation("io.ktor:ktor-client-mock:2.3.7")
 }
 
 application {
